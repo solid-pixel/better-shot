@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/test-freeze-and-icons]
   pull_request:
   workflow_dispatch:
 
@@ -42,3 +42,16 @@ jobs:
           app=".build/Build/Products/Release/BetterShot.app"
           test -d "$app" || { echo "::error::$app was not produced"; exit 1; }
           echo "Built $app"
+
+      - name: Package contribution test build
+        if: github.repository == 'solid-pixel/better-shot' && github.ref == 'refs/heads/codex/test-freeze-and-icons'
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent .build/Build/Products/Release/BetterShot.app BetterShot-test.zip
+
+      - name: Upload contribution test build
+        if: github.repository == 'solid-pixel/better-shot' && github.ref == 'refs/heads/codex/test-freeze-and-icons'
+        uses: actions/upload-artifact@v4
+        with:
+          name: BetterShot-test-freeze-and-icons
+          path: BetterShot-test.zip
+          retention-days: 14
