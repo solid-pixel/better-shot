@@ -1,5 +1,6 @@
 import AppKit
 import ScreenCaptureKit
+import OSLog
 
 struct RegionSelection {
     let pointsRect: CGRect  // In global display points (top-left origin, matching SCK coordinates)
@@ -66,6 +67,7 @@ final class RegionSelectionOverlay {
     }
 
     private func showOverlays() {
+        let started = ContinuousClock.now
         let crosshair = NSCursor.crosshair
         let capturesOnRelease = controlScreen != nil || AppPreferences.captureRegionOnRelease
 
@@ -80,6 +82,7 @@ final class RegionSelectionOverlay {
             window.backgroundColor = .clear
             window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow)))
             window.hasShadow = false
+            window.animationBehavior = .none
             window.ignoresMouseEvents = false
             window.acceptsMouseMovedEvents = true
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenPrimary]
@@ -111,6 +114,9 @@ final class RegionSelectionOverlay {
             } else {
                 window.contentView = overlayView
             }
+            // Paint before ordering the window. Otherwise the cursor can change
+            // while AppKit still has the first dimmed/frozen frame queued.
+            window.display()
             if controlScreen != nil { window.orderFrontRegardless() }
             else { window.makeKeyAndOrderFront(nil) }
             overlayWindows.append(window)
@@ -123,6 +129,9 @@ final class RegionSelectionOverlay {
         }
         crosshair.push()
         crosshair.set()
+        Logger(subsystem: "com.bettershot.app", category: "CaptureStartup").info(
+            "Selector presented in \(String(describing: started.duration(to: .now)), privacy: .public)"
+        )
     }
 
     private func finishSelection(rect: CGRect, screen: NSScreen) {
