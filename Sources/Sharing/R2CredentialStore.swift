@@ -55,6 +55,7 @@ final class R2CredentialStore {
     private static let keychainService = "com.bettershot.app.r2"
     // Editor snapshots run in a freshly linked executable, which must never open the user's keys.
     private static let isRunningTests = ProcessInfo.processInfo.environment["BETTERSHOT_TESTING"] == "1"
+        || ProcessInfo.processInfo.environment["BETTERSHOT_DISABLE_R2_KEYCHAIN"] == "1"
 
     private enum Keys {
         static let accountID = "bs_r2_accountID"
