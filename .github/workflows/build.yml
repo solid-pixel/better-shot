@@ -1,44 +1,32 @@
-name: Build
+name: Capture startup test build
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build:
-    name: Release build
-    # macos-26 is the arm64 image and carries Xcode 26 and its macOS 26 SDK.
-    # project.yml deploys back to macOS 14.0 (arm64-apple-macosx14.0).
+    if: github.repository == 'solid-pixel/better-shot'
     runs-on: macos-26
     timeout-minutes: 45
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Show toolchain
-        run: |
-          xcodebuild -version
-          swift --version
-          sw_vers
-
+        run: xcodebuild -version
       - name: Install XcodeGen
         run: brew install xcodegen
-
-      # `make release` already builds unsigned (CODE_SIGN_IDENTITY=""
-      # CODE_SIGNING_REQUIRED=NO), so it works without the maintainer's
-      # Developer ID. `make build` does not — it inherits DEVELOPMENT_TEAM
-      # from project.yml and fails on any fork.
       - name: Build
-        run: make release
-
-      - name: Confirm the app was produced
         run: |
-          app=".build/Build/Products/Release/BetterShot.app"
-          test -d "$app" || { echo "::error::$app was not produced"; exit 1; }
-          echo "Built $app"
+          set -euo pipefail
+          make generate
+          xcodebuild -project BetterShot.xcodeproj -scheme BetterShot -configuration Release \
+            -derivedDataPath .build CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO build > build.log 2>&1 || { tail -100 build.log; exit 1; }
+          test -d .build/Build/Products/Release/BetterShot.app
+      - name: Package test app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent .build/Build/Products/Release/BetterShot.app BetterShot-startup-test.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BetterShot-startup-test
+          path: BetterShot-startup-test.zip
+          retention-days: 14
