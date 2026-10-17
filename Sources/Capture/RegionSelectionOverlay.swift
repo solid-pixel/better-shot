@@ -1,6 +1,7 @@
 import AppKit
 import ScreenCaptureKit
 import OSLog
+import QuartzCore
 
 struct RegionSelection {
     let pointsRect: CGRect  // In global display points (top-left origin, matching SCK coordinates)
@@ -114,23 +115,35 @@ final class RegionSelectionOverlay {
             } else {
                 window.contentView = overlayView
             }
-            // Paint before ordering the window. Otherwise the cursor can change
-            // while AppKit still has the first dimmed/frozen frame queued.
-            window.display()
-            if controlScreen != nil { window.orderFrontRegardless() }
-            else { window.makeKeyAndOrderFront(nil) }
             overlayWindows.append(window)
             selectionViews.append(overlayView)
         }
 
         if controlScreen == nil {
             NSApp.activate(ignoringOtherApps: true)
-            selectionViews.first(where: \.hasSelection)?.window?.makeKeyAndOrderFront(nil)
         }
+        // Order independently of activation, which may still be pending when a
+        // menu-bar shortcut invokes us. Hidden windows can defer their first draw.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        CATransaction.setCompletionBlock {
+            Logger(subsystem: "com.bettershot.app", category: "CaptureStartup").info(
+                "Selector initial layer transaction completed in \(String(describing: started.duration(to: .now)), privacy: .public)"
+            )
+        }
+        for window in overlayWindows {
+            window.orderFrontRegardless()
+            if controlScreen == nil { window.makeKey() }
+            window.displayIfNeeded()
+        }
+        if controlScreen == nil {
+            selectionViews.first(where: \.hasSelection)?.window?.makeKey()
+        }
+        CATransaction.commit()
         crosshair.push()
         crosshair.set()
         Logger(subsystem: "com.bettershot.app", category: "CaptureStartup").info(
-            "Selector presented in \(String(describing: started.duration(to: .now)), privacy: .public)"
+            "Selector window setup finished in \(String(describing: started.duration(to: .now)), privacy: .public)"
         )
     }
 
@@ -185,10 +198,17 @@ private final class FrozenBackdropView: NSView {
     init(image: CGImage, frame: NSRect) {
         self.image = image
         super.init(frame: frame)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         wantsLayer = true
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    override func makeBackingLayer() -> CALayer {
+        let backingLayer = super.makeBackingLayer()
+        backingLayer.contents = image
+        return backingLayer
+    }
 
     override var wantsUpdateLayer: Bool { true }
 
@@ -200,6 +220,7 @@ private final class FrozenBackdropView: NSView {
 // MARK: - Selection View
 
 private final class SelectionView: NSView {
+    private var firstDrawStarted: ContinuousClock.Instant? = .now
     private var dragStart: NSPoint?
     private var dragCurrent: NSPoint?
     private var mouseLocation: NSPoint?
@@ -287,6 +308,12 @@ private final class SelectionView: NSView {
             drawAdjustableSelection(selection)
         } else if let mouse = mouseLocation {
             drawGuideLines(at: mouse)
+        }
+        if let started = firstDrawStarted {
+            firstDrawStarted = nil
+            Logger(subsystem: "com.bettershot.app", category: "CaptureStartup").info(
+                "Selector first draw finished in \(String(describing: started.duration(to: .now)), privacy: .public)"
+            )
         }
     }
 
