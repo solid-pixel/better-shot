@@ -81,12 +81,12 @@ final class RegionSelectionOverlay {
             )
             window.isOpaque = false
             window.backgroundColor = .clear
-            window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow)))
+            window.level = .screenSaver
             window.hasShadow = false
             window.animationBehavior = .none
             window.ignoresMouseEvents = false
             window.acceptsMouseMovedEvents = true
-            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenPrimary]
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
 
             let previousRegion = (controlScreen == nil && AppPreferences.preselectPreviousRegion ? AppPreferences.lastRegionRect : nil)
                 .flatMap { screen.frame.contains($0) ? RegionGeometry.localRect(global: $0, screenFrame: screen.frame) : nil }
@@ -140,6 +140,9 @@ final class RegionSelectionOverlay {
             selectionViews.first(where: \.hasSelection)?.window?.makeKey()
         }
         CATransaction.commit()
+        // This one-shot overlay needs its initial frame submitted immediately;
+        // the crosshair must not get ahead of AppKit's deferred layer drawing.
+        CATransaction.flush()
         crosshair.push()
         crosshair.set()
         Logger(subsystem: "com.bettershot.app", category: "CaptureStartup").info(
