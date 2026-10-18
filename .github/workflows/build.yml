@@ -1,32 +1,51 @@
-name: Capture startup test build
+name: Capture full test suite
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  test:
     if: github.repository == 'solid-pixel/better-shot'
     runs-on: macos-26
     timeout-minutes: 45
+    env:
+      BETTERSHOT_TESTING: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Show toolchain
-        run: xcodebuild -version
+        run: |
+          xcodebuild -version
+          swift --version
+          sw_vers
+          git rev-parse HEAD
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Build
+      - name: Run complete test target
+        id: full_tests
         run: |
           set -euo pipefail
-          make generate
-          xcodebuild -project BetterShot.xcodeproj -scheme BetterShot -configuration Release \
-            -derivedDataPath .build CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO build > build.log 2>&1 || { tail -100 build.log; exit 1; }
-          test -d .build/Build/Products/Release/BetterShot.app
-      - name: Package test app
+          mkdir -p .build/test-logs
+          make test 2>&1 | tee .build/test-logs/make-test.log
+      - name: Summarize result
+        if: always()
+        env:
+          TEST_OUTCOME: ${{ steps.full_tests.outcome }}
         run: |
-          ditto -c -k --sequesterRsrc --keepParent .build/Build/Products/Release/BetterShot.app BetterShot-startup-test.zip
+          {
+            echo "## Full make test outcome: ${TEST_OUTCOME}"
+            echo "Commit: $(git rev-parse HEAD)"
+            echo 'Tests use BETTERSHOT_TESTING=1 with isolated storage and no real R2 Keychain access.'
+            echo 'This run does not establish physical shortcut latency or multi-display hardware behavior.'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: BetterShot-startup-test
-          path: BetterShot-startup-test.zip
-          retention-days: 14
+          name: BetterShot-full-test-results
+          path: |
+            .build/test-logs/
+            .build/editor-snapshots/
+          if-no-files-found: warn
+          retention-days: 7
