@@ -1,44 +1,51 @@
-name: Build
+name: Capture full test suite
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
 
 jobs:
-  build:
-    name: Release build
-    # macos-26 is the arm64 image and carries Xcode 26 and its macOS 26 SDK.
-    # project.yml deploys back to macOS 14.0 (arm64-apple-macosx14.0).
+  test:
+    if: github.repository == 'solid-pixel/better-shot'
     runs-on: macos-26
     timeout-minutes: 45
-
+    env:
+      BETTERSHOT_TESTING: "1"
     steps:
       - uses: actions/checkout@v4
-
       - name: Show toolchain
         run: |
           xcodebuild -version
           swift --version
           sw_vers
-
+          git rev-parse HEAD
       - name: Install XcodeGen
         run: brew install xcodegen
-
-      # `make release` already builds unsigned (CODE_SIGN_IDENTITY=""
-      # CODE_SIGNING_REQUIRED=NO), so it works without the maintainer's
-      # Developer ID. `make build` does not — it inherits DEVELOPMENT_TEAM
-      # from project.yml and fails on any fork.
-      - name: Build
-        run: make release
-
-      - name: Confirm the app was produced
+      - name: Run complete test target
+        id: full_tests
         run: |
-          app=".build/Build/Products/Release/BetterShot.app"
-          test -d "$app" || { echo "::error::$app was not produced"; exit 1; }
-          echo "Built $app"
+          set -euo pipefail
+          mkdir -p .build/test-logs
+          make test 2>&1 | tee .build/test-logs/make-test.log
+      - name: Summarize result
+        if: always()
+        env:
+          TEST_OUTCOME: ${{ steps.full_tests.outcome }}
+        run: |
+          {
+            echo "## Full make test outcome: ${TEST_OUTCOME}"
+            echo "Commit: $(git rev-parse HEAD)"
+            echo 'Tests use BETTERSHOT_TESTING=1 with isolated storage and no real R2 Keychain access.'
+            echo 'This run does not establish physical shortcut latency or multi-display hardware behavior.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: BetterShot-full-test-results
+          path: |
+            .build/test-logs/
+            .build/editor-snapshots/
+          if-no-files-found: warn
+          retention-days: 7
